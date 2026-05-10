@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dark Field Ventures</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .title {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .title h1 {
+    margin: 0;
+    color: #d6faff;
+    font-size: clamp(2rem, 8vw, 6rem);
+    font-weight: 300;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    text-align: center;
+    text-shadow:
+      0 0 8px rgba(0, 220, 255, 0.9),
+      0 0 24px rgba(0, 180, 255, 0.7),
+      0 0 60px rgba(0, 140, 255, 0.5);
+  }
+  .vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background:
+      radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.85) 100%);
+  }
+</style>
+</head>
+<body>
+<canvas id="grid"></canvas>
+<div class="vignette"></div>
+<div class="title"><h1>Dark Field Ventures</h1></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('grid');
+  const ctx = canvas.getContext('2d');
+
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth = window.innerWidth;
+    H = canvas.clientHeight = window.innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Camera/grid params
+  const HORIZON_RATIO = 0.5;  // horizon Y as a fraction of screen height
+  const SPACING = 1.0;        // world units between gridlines
+  const FOCAL = 0.9;          // focal length (controls perspective strength)
+  const CAM_HEIGHT = 0.55;    // camera height above the grid plane
+  const SPEED = 2.2;          // forward speed (world units per second)
+  const DRAW_DEPTH = 60;      // how many rows ahead to draw
+  const HALF_COLS = 24;       // columns each side of center
+
+  let offset = 0;
+  let last = performance.now();
+
+  // Project a world point (x, z) on the y=0 plane into screen space.
+  // Camera is at (0, CAM_HEIGHT, 0) looking down +z. Horizon at H * HORIZON_RATIO.
+  function project(x, z) {
+    if (z <= 0.0001) return null;
+    const f = FOCAL * H;
+    const sx = (x / z) * f + W / 2;
+    const sy = H * HORIZON_RATIO + (CAM_HEIGHT / z) * f;
+    return [sx, sy];
+  }
+
+  function drawFrame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    offset = (offset + SPEED * dt) % SPACING;
+
+    // Pure dark background
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.lineCap = 'round';
+
+    // Horizontal lines (constant z, varying x)
+    for (let i = 1; i <= DRAW_DEPTH; i++) {
+      const z = i * SPACING - offset;
+      if (z <= 0.05) continue;
+
+      // Fade with distance
+      const t = 1 - i / DRAW_DEPTH;
+      const alpha = Math.pow(t, 1.6) * 0.95;
+
+      const xLeft = -HALF_COLS * SPACING;
+      const xRight = HALF_COLS * SPACING;
+      const a = project(xLeft, z);
+      const b = project(xRight, z);
+      if (!a || !b) continue;
+
+      ctx.strokeStyle = `rgba(140, 145, 150, ${alpha * 0.22})`;
+      ctx.lineWidth = Math.max(0.4, 1.0 * t);
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+
+    // Vertical lines (constant x, varying z) — render as poly-lines so perspective curves correctly
+    for (let c = -HALF_COLS; c <= HALF_COLS; c++) {
+      const x = c * SPACING;
+      ctx.beginPath();
+      let started = false;
+      const steps = 80;
+      for (let s = 0; s <= steps; s++) {
+        const z = 0.1 + (s / steps) * (DRAW_DEPTH * SPACING);
+        const p = project(x, z);
+        if (!p) continue;
+        if (!started) { ctx.moveTo(p[0], p[1]); started = true; }
+        else { ctx.lineTo(p[0], p[1]); }
+      }
+      const edgeFade = 1 - Math.min(1, Math.abs(c) / HALF_COLS);
+      const alpha = (0.05 + 0.18 * edgeFade);
+      ctx.strokeStyle = `rgba(140, 145, 150, ${alpha})`;
+      ctx.lineWidth = c === 0 ? 1.0 : 0.7;
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(drawFrame);
+  }
+
+  requestAnimationFrame((t) => { last = t; drawFrame(t); });
+})();
+</script>
+</body>
+</html>
